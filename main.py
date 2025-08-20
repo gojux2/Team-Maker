@@ -129,6 +129,7 @@ async def handle_participation_add(guild, name, channel):
     display_name = get_display_name(guild, key_name)
 
     if notice:
+        # 明示的にメンション化しない純粋テキスト表示に注意
         await channel.send(f"{display_name} が参加しました。\n{notice}")
     else:
         await channel.send(f"{display_name} が参加しました。")
