@@ -1,5 +1,4 @@
 import discord
-from discord import app_commands
 from discord.ext import commands
 import itertools
 import os
@@ -228,7 +227,6 @@ async def show_initial_power(ctx):
     await ctx.send(f"現在の初期パワーは {initial_power} です。")
 
 @bot.tree.command(name="add_member", description="メンバーとパワーを登録します")
-@app_commands.describe(name="メンバー名（メンションまたは文字列）", power="パワー（整数）")
 async def slash_add_member(interaction: discord.Interaction, name: str, power: int):
     global members
     guild = interaction.guild
@@ -239,7 +237,6 @@ async def slash_add_member(interaction: discord.Interaction, name: str, power: i
     await interaction.response.send_message(f"{display_name} のパワーを {power} に設定・保存しました。")
 
 @bot.tree.command(name="remove_member", description="登録済みメンバーを削除します")
-@app_commands.describe(name="メンバー名（メンションまたは文字列）")
 async def slash_remove_member(interaction: discord.Interaction, name: str):
     global members
     guild = interaction.guild
@@ -253,13 +250,11 @@ async def slash_remove_member(interaction: discord.Interaction, name: str):
     await interaction.response.send_message(f"{display_name} を登録から削除しました。")
 
 @bot.tree.command(name="join", description="参加します")
-@app_commands.describe(name="メンバー名（メンションまたは文字列）")
 async def slash_join(interaction: discord.Interaction, name: str):
     await handle_participation_add(interaction.guild, name, interaction.channel)
     await interaction.response.defer()
 
 @bot.tree.command(name="leave", description="参加をキャンセルします")
-@app_commands.describe(name="メンバー名（メンションまたは文字列）")
 async def slash_leave(interaction: discord.Interaction, name: str):
     global participants
     guild = interaction.guild
@@ -288,7 +283,6 @@ async def list_members(interaction: discord.Interaction):
     await interaction.response.send_message(text)
 
 @bot.tree.command(name="set_tolerance", description="パワー差許容値を設定します")
-@app_commands.describe(value="許容するパワー差の最大値")
 async def set_tolerance(interaction: discord.Interaction, value: int):
     global power_diff_tolerance, settings
     if value < 0:
@@ -394,17 +388,22 @@ async def make_teams_cmd(ctx, *args):
     full_candidates = []
     candidates = []
 
+    diff_count = len(diff_team_set)
+    target_in_team1 = (diff_count + 1) // 2  # diffグループ半数（切り上げ）
+
     for comb in itertools.combinations(names, 5):
         team1 = frozenset(comb)
         team2 = frozenset(n for n in names if n not in comb)
 
+        # sameグループ条件
         if any(not (group.issubset(team1) or group.issubset(team2)) for group in same_team_groups):
             continue
 
-        if diff_team_set:
-            in_team1 = diff_team_set.intersection(team1)
-            in_team2 = diff_team_set.intersection(team2)
-            if not (in_team1 and in_team2):
+        # diffグループ均等割りチェック
+        if diff_count > 0:
+            in_team1 = len(diff_team_set.intersection(team1))
+            in_team2 = len(diff_team_set.intersection(team2))
+            if in_team1 != target_in_team1 or in_team2 != diff_count - target_in_team1:
                 continue
 
         sum1 = sum(members.get(n, 0) for n in team1)
@@ -466,81 +465,6 @@ async def make_teams_cmd(ctx, *args):
         await ctx.send(f"パワー差許容範囲内（{power_diff_tolerance}）のチーム分けが見つかりませんでした。")
 
     await ctx.send(embed=embed)
-
-@bot.tree.command(name="make_teams", description="参加者10人を5v5でチーム分けします")
-async def slash_make_teams(interaction: discord.Interaction):
-    msg = validate_participant_count_message()
-    if msg is not None:
-        await interaction.response.send_message(msg)
-        return
-
-    remaining = check_participants_minimum()
-    if remaining > 0:
-        await interaction.response.send_message(f"参加者があと{remaining}人必要です。")
-        return
-
-    names = list(participants)
-    candidates = []
-
-    for comb in itertools.combinations(names, 5):
-        team1 = frozenset(comb)
-        team2 = frozenset(n for n in names if n not in comb)
-
-        sum1 = sum(members.get(n, 0) for n in team1)
-        sum2 = sum(members.get(n, 0) for n in team2)
-        diff = abs(sum1 - sum2)
-
-        if diff > power_diff_tolerance:
-            continue
-
-        duplicate_in_history = any(
-            (team1 == past[0] and team2 == past[1]) or (team1 == past[1] and team2 == past[0]) for past in history
-        )
-        if duplicate_in_history:
-            continue
-
-        candidates.append({
-            'team1': team1,
-            'team2': team2,
-            'diff': diff,
-        })
-
-    if not candidates:
-        await interaction.response.send_message("条件に合うチーム分けが見つかりませんでした。")
-        return
-
-    selected = random.choice(candidates)
-
-    team1 = selected['team1']
-    team2 = selected['team2']
-
-    sorted_team1 = sorted(team1, key=lambda n: members.get(n, 0), reverse=True)
-    sorted_team2 = sorted(team2, key=lambda n: members.get(n, 0), reverse=True)
-
-    display_team1 = [get_display_name(interaction.guild, n) for n in sorted_team1]
-    display_team2 = [get_display_name(interaction.guild, n) for n in sorted_team2]
-
-    embed = discord.Embed(color=0x00ff00)
-    embed.add_field(
-        name=f"チーム1 (合計: {sum(members.get(n,0) for n in team1)})",
-        value=" ".join(f"[ {name} ]" for name in display_team1),
-        inline=False)
-    embed.add_field(
-        name=f"チーム2 (合計: {sum(members.get(n,0) for n in team2)})",
-        value=" ".join(f"[ {name} ]" for name in display_team2),
-        inline=False)
-
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="list_joiners", description="現在の参加者一覧を表示します")
-async def list_joiners(interaction: discord.Interaction):
-    guild = interaction.guild
-    sorted_list = sorted(participants, key=lambda p: members.get(p, 0), reverse=True)
-    if not sorted_list:
-        await interaction.response.send_message("現在の参加者はいません。")
-        return
-    lines = [f"{get_display_name(guild, p)}: {members.get(p, 0)}" for p in sorted_list]
-    await interaction.response.send_message("現在の参加者一覧:\n" + "\n".join(lines))
 
 @bot.event
 async def on_ready():
