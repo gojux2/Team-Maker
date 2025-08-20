@@ -66,14 +66,12 @@ def save_settings(settings_dict):
 def load_settings():
     return settings_ref.get() or {}
 
-# 共通関数：参加者数チェック
 def check_participants_minimum(min_required=10):
     current_count = len(participants)
     if current_count < min_required:
         return min_required - current_count
     return 0
 
-# --- Bot初期設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
@@ -97,7 +95,6 @@ settings = load_settings()
 power_diff_tolerance = settings.get('power_diff_tolerance', 10)
 initial_power = settings.get('initial_power', 50)
 
-# --- ユーティリティ関数 ---
 def extract_name(name_str):
     if name_str.startswith("<@") and name_str.endswith(">"):
         return name_str.strip("<@!>")
@@ -112,12 +109,7 @@ def get_display_name(guild, name):
 def teams_equal(t1a, t1b, t2a, t2b):
     return (t1a == t2a and t1b == t2b) or (t1a == t2b and t1b == t2a)
 
-# 参加処理共通関数
 async def handle_participation_add(guild, name, channel):
-    """
-    参加者追加処理（未登録自動登録対応）
-    成功メッセージ（2行）をDiscordに送信
-    """
     global participants, members, initial_power
     key_name = extract_name(name)
     notice = ""
@@ -129,12 +121,9 @@ async def handle_participation_add(guild, name, channel):
     display_name = get_display_name(guild, key_name)
 
     if notice:
-        # 明示的にメンション化しない純粋テキスト表示に注意
         await channel.send(f"{display_name} が参加しました。\n{notice}")
     else:
         await channel.send(f"{display_name} が参加しました。")
-
-# --- Prefixコマンド群 ---
 
 @bot.command(name="add_member")
 async def add_member(ctx, *args):
@@ -406,7 +395,7 @@ async def make_teams_cmd(ctx, *args):
             candidates.append(candidate)
 
     if not candidates:
-        await ctx.send(f"パワー差許容範囲内（{power_diff_tolerance}）のチーム分けが見つかりませんでした。")
+        # 事前警告メッセージを出さずに許容値超過組み合わせで進行
         candidates = full_candidates
 
     candidates.sort(key=lambda c: (c['repeat_score'], c['diff']))
@@ -437,7 +426,7 @@ async def make_teams_cmd(ctx, *args):
         inline=False)
 
     if selected['diff'] > power_diff_tolerance:
-        await ctx.send(f"※パワー差許容値（{power_diff_tolerance}）を超えています。なるべくバランス良く組みましたがご了承ください。")
+        await ctx.send(f"パワー差許容範囲内（{power_diff_tolerance}）のチーム分けが見つかりませんでした。")
 
     await ctx.send(embed=embed)
 
@@ -501,7 +490,16 @@ async def slash_make_teams(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed)
 
-# --- Bot起動 ---
+@bot.tree.command(name="list_joiners", description="現在の参加者一覧を表示します")
+async def list_joiners(interaction: discord.Interaction):
+    guild = interaction.guild
+    sorted_list = sorted(participants, key=lambda p: members.get(p, 0), reverse=True)
+    if not sorted_list:
+        await interaction.response.send_message("現在の参加者はいません。")
+        return
+    lines = [f"{get_display_name(guild, p)}: {members.get(p, 0)}" for p in sorted_list]
+    await interaction.response.send_message("現在の参加者一覧:\n" + "\n".join(lines))
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
