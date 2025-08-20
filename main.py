@@ -357,6 +357,39 @@ async def on_reaction_remove(reaction, user):
         if key_name in participants:
             participants.remove(key_name)
 
+def normalize_pair(t1, t2):
+    t1_sorted = frozenset(sorted(t1))
+    t2_sorted = frozenset(sorted(t2))
+    return (t1_sorted, t2_sorted) if t1_sorted < t2_sorted else (t2_sorted, t1_sorted)
+
+def member_repeat_score(t1, t2):
+    score = 0
+    weights = [100, 10, 5, 2, 1]  # 直近履歴の重み付け強化
+    current = normalize_pair(t1, t2)
+    for idx, past in enumerate(history[::-1]):
+        past_norm = normalize_pair(past[0], past[1])
+        weight = weights[idx] if idx < len(weights) else 1
+        if current[0] == past_norm[0] and current[1] == past_norm[1]:
+            score += weight * len(t1.intersection(past[0]))
+            score += weight * len(t2.intersection(past[1]))
+        elif current[0] == past_norm[1] and current[1] == past_norm[0]:
+            score += weight * len(t1.intersection(past[1]))
+            score += weight * len(t2.intersection(past[0]))
+        else:
+            pass
+    return score
+
+def count_overlap(set1, set2):
+    return len(set1.intersection(set2))
+
+def decide_swap(team1, team2, prev_team1, prev_team2):
+    overlap_normal = count_overlap(team1, prev_team1) + count_overlap(team2, prev_team2)
+    overlap_swapped = count_overlap(team1, prev_team2) + count_overlap(team2, prev_team1)
+    if overlap_swapped < overlap_normal:
+        return team2, team1  # スワップしたほうが重複少なければ切り替え
+    else:
+        return team1, team2
+
 @bot.command(name="make_teams")
 async def make_teams_cmd(ctx, *args):
     msg = validate_participant_count_message()
@@ -418,15 +451,6 @@ async def make_teams_cmd(ctx, *args):
         sum2 = sum(members.get(n, 0) for n in team2)
         diff = abs(sum1 - sum2)
 
-        def member_repeat_score(t1, t2):
-            score = 0
-            weights = [100, 10, 5, 2, 1]  # 直近の履歴に重み付け強化
-            for idx, past in enumerate(history[::-1]):
-                weight = weights[idx] if idx < len(weights) else 1
-                score += weight * len(t1.intersection(past[0]))
-                score += weight * len(t2.intersection(past[1]))
-            return score
-
         repeat_score = member_repeat_score(team1, team2)
 
         candidate = {
@@ -448,6 +472,11 @@ async def make_teams_cmd(ctx, *args):
 
     team1 = selected['team1']
     team2 = selected['team2']
+
+    # 直前の履歴があれば、重複避けてスワップ判定
+    if history:
+        prev_team1, prev_team2 = history[-1]
+        team1, team2 = decide_swap(team1, team2, prev_team1, prev_team2)
 
     history.append((team1, team2))
     if len(history) > 10:
