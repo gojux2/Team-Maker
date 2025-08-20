@@ -72,6 +72,17 @@ def check_participants_minimum(min_required=10):
         return min_required - current_count
     return 0
 
+# 参加者数エラー用例外
+class ParticipantCountError(Exception):
+    def __init__(self, count):
+        self.count = count
+        super().__init__(f"参加者が{count}人います。")
+
+def validate_participant_count():
+    count = len(participants)
+    if count != 10:
+        raise ParticipantCountError(count)
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
@@ -327,6 +338,11 @@ async def on_reaction_add(reaction, user):
             async def send(self, content=None, **kwargs):
                 await channel.send(content=content, **kwargs)
         dummy_ctx = DummyCtx(channel, reaction.message.guild)
+        try:
+            validate_participant_count()
+        except ParticipantCountError as e:
+            await channel.send(str(e))
+            return
         await make_teams_cmd(dummy_ctx)
 
 @bot.event
@@ -343,12 +359,13 @@ async def on_reaction_remove(reaction, user):
 
 @bot.command(name="make_teams")
 async def make_teams_cmd(ctx, *args):
-    global participants, members, history, power_diff_tolerance
-
-    remaining = check_participants_minimum()
-    if remaining > 0:
-        await ctx.send(f"参加者があと{remaining}人必要です。")
+    try:
+        validate_participant_count()
+    except ParticipantCountError as e:
+        await ctx.send(str(e))
         return
+
+    global participants, members, history, power_diff_tolerance
 
     same_team_groups = []
     diff_team_set = set()
@@ -457,6 +474,12 @@ async def make_teams_cmd(ctx, *args):
 
 @bot.tree.command(name="make_teams", description="参加者10人を5v5でチーム分けします")
 async def slash_make_teams(interaction: discord.Interaction):
+    try:
+        validate_participant_count()
+    except ParticipantCountError as e:
+        await interaction.response.send_message(str(e))
+        return
+
     remaining = check_participants_minimum()
     if remaining > 0:
         await interaction.response.send_message(f"参加者があと{remaining}人必要です。")
