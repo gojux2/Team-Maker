@@ -66,8 +66,6 @@ def save_settings(settings_dict):
 def load_settings():
     return settings_ref.get() or {}
 
-# 慣例的に初期パワーをsettingsの'initial_power'キーで管理
-
 # --- Bot初期設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
@@ -207,6 +205,11 @@ async def set_initial_power(ctx, power: int):
     save_settings(settings)
     await ctx.send(f"未登録メンバーの初期パワーを {initial_power} に設定し保存しました。")
 
+@bot.command(name="show_initial_power")
+async def show_initial_power(ctx):
+    global initial_power
+    await ctx.send(f"現在の未登録メンバーの初期パワーは {initial_power} です。")
+
 @bot.tree.command(name="add_member", description="メンバーとパワーを登録します")
 @app_commands.describe(name="メンバー名（メンションまたは文字列）", power="パワー（整数）")
 async def slash_add_member(interaction: discord.Interaction, name: str, power: int):
@@ -305,15 +308,6 @@ async def recruit(interaction: discord.Interaction):
 
 @bot.command(name="make_teams")
 async def make_teams_cmd(ctx, *args):
-    """
-    使い方例:
-    !make_teams same:A B same:C D diff:A C
-    - same: 同じチームにしたいメンバー（複数可・複数セット指定可）
-    - diff: 別チームにしたいメンバー（複数可）
-
-    同じチーム制約は複数建てられ、そのすべてを満たす必要があり、
-    別チーム制約もすべて満たすようにチーム分けを行います。
-    """
     global participants, members, history, power_diff_tolerance
 
     if len(participants) != 10:
