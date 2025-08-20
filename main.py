@@ -312,8 +312,34 @@ async def on_reaction_add(reaction, user):
         return
     if reaction.message.id != recruit_msg_id:
         return
-    channel = reaction.message.channel
-    await handle_participation_add(reaction.message.guild, str(user.id), channel)
+
+    if str(reaction.emoji) == "👍":
+        key_name = str(user.id)
+        if key_name not in participants:
+            participants.add(key_name)
+
+    elif str(reaction.emoji) == "✅":
+        channel = reaction.message.channel
+        class DummyCtx:
+            def __init__(self, channel, guild):
+                self.channel = channel
+                self.guild = guild
+            async def send(self, content=None, **kwargs):
+                await channel.send(content=content, **kwargs)
+        dummy_ctx = DummyCtx(channel, reaction.message.guild)
+        await make_teams_cmd(dummy_ctx)
+
+@bot.event
+async def on_reaction_remove(reaction, user):
+    if user.bot:
+        return
+    if reaction.message.id != recruit_msg_id:
+        return
+
+    if str(reaction.emoji) == "👍":
+        key_name = str(user.id)
+        if key_name in participants:
+            participants.remove(key_name)
 
 @bot.command(name="make_teams")
 async def make_teams_cmd(ctx, *args):
@@ -395,7 +421,6 @@ async def make_teams_cmd(ctx, *args):
             candidates.append(candidate)
 
     if not candidates:
-        # 事前警告メッセージを出さずに許容値超過組み合わせで進行
         candidates = full_candidates
 
     candidates.sort(key=lambda c: (c['repeat_score'], c['diff']))
