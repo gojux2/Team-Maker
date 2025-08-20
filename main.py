@@ -47,6 +47,7 @@ firebase_admin.initialize_app(cred, {
 # Firebaseの参照先
 ref = db.reference('members')
 history_ref = db.reference('history')
+settings_ref = db.reference('settings')
 
 def save_members(members_dict):
     ref.set(members_dict)
@@ -65,6 +66,15 @@ def get_history():
     if data is None:
         return []
     return data
+
+def save_settings(power_diff):
+    settings_ref.set({'power_diff_tolerance': power_diff})
+
+def load_settings():
+    data = settings_ref.get()
+    if data and 'power_diff_tolerance' in data:
+        return data['power_diff_tolerance']
+    return 10  # デフォルト値
 
 # === Discord Bot本体 ===
 
@@ -87,10 +97,12 @@ bot = TeamBot()
 
 # 初期化 Firebaseから読み込み
 members = get_members()
-power_diff_tolerance = 10
 participants = set()
 raw_history = get_history()
 history = [(frozenset(t[0]), frozenset(t[1])) for t in raw_history]
+
+# パワー許容値はFirebaseからロード
+power_diff_tolerance = load_settings()
 
 recruit_msg_id = None
 recruit_channel_id = None
@@ -176,7 +188,8 @@ async def set_tolerance(interaction: discord.Interaction, value: int):
         await interaction.response.send_message("許容値は0以上の整数で指定してください。")
         return
     power_diff_tolerance = value
-    await interaction.response.send_message(f"パワー差の許容値を {power_diff_tolerance} に設定しました。")
+    save_settings(power_diff_tolerance)
+    await interaction.response.send_message(f"パワー差の許容値を {power_diff_tolerance} に設定・保存しました。")
 
 @bot.tree.command(name="show_tolerance", description="現在のパワー差許容値を表示します")
 async def show_tolerance(interaction: discord.Interaction):
