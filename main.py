@@ -310,8 +310,10 @@ async def recruit(interaction: discord.Interaction):
 async def make_teams_cmd(ctx, *args):
     global participants, members, history, power_diff_tolerance
 
-    if len(participants) != 10:
-        await ctx.send("参加表明したメンバーが10人必要です。")
+    current_count = len(participants)
+    required = 10
+    if current_count != required:
+        await ctx.send(f"参加表明したメンバーが{required}人必要です。")
         return
 
     same_team_groups = []
@@ -343,6 +345,7 @@ async def make_teams_cmd(ctx, *args):
         same_team_groups.append(set(current_set))
 
     names = list(participants)
+    full_candidates = []
     candidates = []
 
     for comb in itertools.combinations(names, 5):
@@ -362,33 +365,30 @@ async def make_teams_cmd(ctx, *args):
         sum2 = sum(members.get(n, 0) for n in team2)
         diff = abs(sum1 - sum2)
 
-        if diff > power_diff_tolerance:
-            continue
-
-        duplicate_in_history = any(
-            (team1 == past[0] and team2 == past[1]) or (team1 == past[1] and team2 == past[0]) for past in history
-        )
-        if duplicate_in_history:
-            continue
-
         def member_repeat_score(t1, t2):
             score = 0
-            for past in history:
-                score += len(t1.intersection(past[0]))
-                score += len(t2.intersection(past[1]))
+            for idx, past in enumerate(history[::-1]):
+                weight = (idx + 1)
+                score += weight * len(t1.intersection(past[0]))
+                score += weight * len(t2.intersection(past[1]))
             return score
 
         repeat_score = member_repeat_score(team1, team2)
-        candidates.append({
+
+        candidate = {
             'team1': team1,
             'team2': team2,
             'diff': diff,
             'repeat_score': repeat_score
-        })
+        }
+        full_candidates.append(candidate)
+
+        if diff <= power_diff_tolerance:
+            candidates.append(candidate)
 
     if not candidates:
-        await ctx.send("条件に合うチーム分けが見つかりませんでした。")
-        return
+        await ctx.send(f"パワー差許容範囲内（{power_diff_tolerance}）のチーム分けが見つかりませんでした。")
+        candidates = full_candidates
 
     candidates.sort(key=lambda c: (c['repeat_score'], c['diff']))
     selected = random.choice(candidates[:min(5, len(candidates))])
@@ -407,15 +407,18 @@ async def make_teams_cmd(ctx, *args):
     display_team1 = [get_display_name(ctx.guild, n) for n in sorted_team1]
     display_team2 = [get_display_name(ctx.guild, n) for n in sorted_team2]
 
-    embed = discord.Embed(color=0x00ff00)
+    embed = discord.Embed(color=0xffa500)
     embed.add_field(
-        name=f"チーム1 (合計: {sum(members.get(n,0) for n in team1)})",
+        name=f"チーム1 (合計: {sum(members.get(n, 0) for n in team1)})",
         value=" ".join(f"[ {name} ]" for name in display_team1),
         inline=False)
     embed.add_field(
-        name=f"チーム2 (合計: {sum(members.get(n,0) for n in team2)})",
+        name=f"チーム2 (合計: {sum(members.get(n, 0) for n in team2)})",
         value=" ".join(f"[ {name} ]" for name in display_team2),
         inline=False)
+
+    if selected['diff'] > power_diff_tolerance:
+        await ctx.send(f"※パワー差許容値（{power_diff_tolerance}）を超えています。なるべくバランス良く組みましたがご了承ください。")
 
     await ctx.send(embed=embed)
 
