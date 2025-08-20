@@ -60,14 +60,13 @@ def get_history():
     data = history_ref.get()
     return data if data else []
 
-def save_settings(power_diff):
-    settings_ref.set({'power_diff_tolerance': power_diff})
+def save_settings(settings_dict):
+    settings_ref.set(settings_dict)
 
 def load_settings():
-    data = settings_ref.get()
-    if data and 'power_diff_tolerance' in data:
-        return data['power_diff_tolerance']
-    return 10
+    return settings_ref.get() or {}
+
+# 慣例的に初期パワーをsettingsの'initial_power'キーで管理
 
 # --- Bot初期設定 ---
 intents = discord.Intents.default()
@@ -88,7 +87,10 @@ members = get_members()
 participants = set()
 raw_history = get_history()
 history = [(frozenset(t[0]), frozenset(t[1])) for t in raw_history]
-power_diff_tolerance = load_settings()
+
+settings = load_settings()
+power_diff_tolerance = settings.get('power_diff_tolerance', 10)
+initial_power = settings.get('initial_power', 50)
 
 # --- ユーティリティ関数 ---
 def extract_name(name_str):
@@ -101,6 +103,9 @@ def get_display_name(guild, name):
     if member:
         return member.display_name
     return name
+
+def teams_equal(t1a, t1b, t2a, t2b):
+    return (t1a == t2a and t1b == t2b) or (t1a == t2b and t1b == t2a)
 
 # --- Prefixコマンド群 ---
 
@@ -155,24 +160,20 @@ async def remove_member(ctx, *args):
 
 @bot.command(name="join")
 async def join(ctx, *args):
+    global participants, members, initial_power
     guild = ctx.guild
     added = []
-    failed = []
     for name_raw in args:
         name = extract_name(name_raw)
         if name not in members:
-            failed.append(name)
-            continue
+            members[name] = initial_power
+            save_members(members)
+            added.append(f"{name} (新規登録:{initial_power})")
+        else:
+            added.append(name)
         participants.add(name)
-        added.append(name)
-    msg = ""
-    if added:
-        display_names = [get_display_name(guild, n) for n in added]
-        msg += f"参加表明しました: {', '.join(display_names)}\n"
-    if failed:
-        display_names = [get_display_name(guild, n) for n in failed]
-        msg += f"未登録メンバー: {', '.join(display_names)}"
-    await ctx.send(msg or "名前を指定してください。")
+    display_names = [get_display_name(guild, n.split(" ")[0]) for n in added]
+    await ctx.send(f"参加表明しました: {', '.join(display_names)}" if added else "名前を指定してください。")
 
 @bot.command(name="leave")
 async def leave(ctx, *args):
@@ -195,7 +196,16 @@ async def leave(ctx, *args):
         msg += f"参加表明していません: {', '.join(display_names)}"
     await ctx.send(msg or "名前を指定してください。")
 
-# --- スラッシュコマンド群 ---
+@bot.command(name="set_initial_power")
+async def set_initial_power(ctx, power: int):
+    global initial_power, settings
+    if power < 0:
+        await ctx.send("初期パワーは0以上の整数で指定してください。")
+        return
+    initial_power = power
+    settings['initial_power'] = initial_power
+    save_settings(settings)
+    await ctx.send(f"未登録メンバーの初期パワーを {initial_power} に設定し保存しました。")
 
 @bot.tree.command(name="add_member", description="メンバーとパワーを登録します")
 @app_commands.describe(name="メンバー名（メンションまたは文字列）", power="パワー（整数）")
@@ -225,15 +235,17 @@ async def slash_remove_member(interaction: discord.Interaction, name: str):
 @bot.tree.command(name="join", description="参加表明します")
 @app_commands.describe(name="メンバー名（メンションまたは文字列）")
 async def slash_join(interaction: discord.Interaction, name: str):
-    global participants
+    global participants, members, initial_power
     guild = interaction.guild
     key_name = extract_name(name)
-    display_name = get_display_name(guild, key_name)
+    notice = ""
     if key_name not in members:
-        await interaction.response.send_message(f"{display_name} は登録されていません。")
-        return
+        members[key_name] = initial_power
+        save_members(members)
+        notice = "(未登録だったためパワー50で登録しました) "
     participants.add(key_name)
-    await interaction.response.send_message(f"{display_name} が参加表明しました。")
+    display_name = get_display_name(guild, key_name)
+    await interaction.response.send_message(f"{notice}{display_name} が参加表明しました。")
 
 @bot.tree.command(name="leave", description="参加表明を解除します")
 @app_commands.describe(name="メンバー名（メンションまたは文字列）")
@@ -258,7 +270,7 @@ async def reset_join(interaction: discord.Interaction):
 async def list_members(interaction: discord.Interaction):
     guild = interaction.guild
     sorted_members = sorted(members.items(), key=lambda item: item[1], reverse=True)
-    text = "登録メンバー (パワー順):\n"
+    text = "登録メンバー:\n"
     for name, power in sorted_members:
         display_name = get_display_name(guild, name)
         text += f"{display_name}: {power}\n"
@@ -267,12 +279,13 @@ async def list_members(interaction: discord.Interaction):
 @bot.tree.command(name="set_tolerance", description="パワー差許容値を設定します")
 @app_commands.describe(value="許容するパワー差の最大値")
 async def set_tolerance(interaction: discord.Interaction, value: int):
-    global power_diff_tolerance
+    global power_diff_tolerance, settings
     if value < 0:
         await interaction.response.send_message("許容値は0以上の整数で指定してください。")
         return
     power_diff_tolerance = value
-    save_settings(power_diff_tolerance)
+    settings['power_diff_tolerance'] = power_diff_tolerance
+    save_settings(settings)
     await interaction.response.send_message(f"パワー差の許容値を {power_diff_tolerance} に設定・保存しました。")
 
 @bot.tree.command(name="show_tolerance", description="現在のパワー差許容値を表示します")
@@ -289,6 +302,188 @@ async def recruit(interaction: discord.Interaction):
     recruit_channel_id = msg.channel.id
     participants.clear()
     await interaction.response.send_message("参加表明リストをリセットしました。")
+
+@bot.command(name="make_teams")
+async def make_teams_cmd(ctx, *args):
+    """
+    使い方例:
+    !make_teams same:A B same:C D diff:A C
+    - same: 同じチームにしたいメンバー（複数可・複数セット指定可）
+    - diff: 別チームにしたいメンバー（複数可）
+
+    同じチーム制約は複数建てられ、そのすべてを満たす必要があり、
+    別チーム制約もすべて満たすようにチーム分けを行います。
+    """
+    global participants, members, history, power_diff_tolerance
+
+    if len(participants) != 10:
+        await ctx.send("参加表明したメンバーが10人必要です。")
+        return
+
+    same_team_groups = []
+    diff_team_set = set()
+
+    mode = None
+    current_set = []
+    for arg in args:
+        if arg.startswith("same:"):
+            if current_set and mode == "same":
+                same_team_groups.append(set(current_set))
+            current_set = arg[5:].split()
+            mode = "same"
+        elif arg.startswith("diff:"):
+            if current_set and mode == "same":
+                same_team_groups.append(set(current_set))
+            current_set = arg[5:].split()
+            mode = "diff"
+            diff_team_set.update(current_set)
+            current_set = []
+        else:
+            if mode == "same":
+                current_set.append(arg)
+            elif mode == "diff":
+                diff_team_set.add(arg)
+            else:
+                pass
+    if current_set and mode == "same":
+        same_team_groups.append(set(current_set))
+
+    names = list(participants)
+    candidates = []
+
+    for comb in itertools.combinations(names, 5):
+        team1 = frozenset(comb)
+        team2 = frozenset(n for n in names if n not in comb)
+
+        if any(not (group.issubset(team1) or group.issubset(team2)) for group in same_team_groups):
+            continue
+
+        if diff_team_set:
+            in_team1 = diff_team_set.intersection(team1)
+            in_team2 = diff_team_set.intersection(team2)
+            if not (in_team1 and in_team2):
+                continue
+
+        sum1 = sum(members.get(n, 0) for n in team1)
+        sum2 = sum(members.get(n, 0) for n in team2)
+        diff = abs(sum1 - sum2)
+
+        if diff > power_diff_tolerance:
+            continue
+
+        duplicate_in_history = any(
+            (team1 == past[0] and team2 == past[1]) or (team1 == past[1] and team2 == past[0]) for past in history
+        )
+        if duplicate_in_history:
+            continue
+
+        def member_repeat_score(t1, t2):
+            score = 0
+            for past in history:
+                score += len(t1.intersection(past[0]))
+                score += len(t2.intersection(past[1]))
+            return score
+
+        repeat_score = member_repeat_score(team1, team2)
+        candidates.append({
+            'team1': team1,
+            'team2': team2,
+            'diff': diff,
+            'repeat_score': repeat_score
+        })
+
+    if not candidates:
+        await ctx.send("条件に合うチーム分けが見つかりませんでした。")
+        return
+
+    candidates.sort(key=lambda c: (c['repeat_score'], c['diff']))
+    selected = random.choice(candidates[:min(5, len(candidates))])
+
+    team1 = selected['team1']
+    team2 = selected['team2']
+
+    history.append((team1, team2))
+    if len(history) > 10:
+        history.pop(0)
+    save_history([(list(t[0]), list(t[1])) for t in history])
+
+    sorted_team1 = sorted(team1, key=lambda n: members.get(n, 0), reverse=True)
+    sorted_team2 = sorted(team2, key=lambda n: members.get(n, 0), reverse=True)
+
+    display_team1 = [get_display_name(ctx.guild, n) for n in sorted_team1]
+    display_team2 = [get_display_name(ctx.guild, n) for n in sorted_team2]
+
+    embed = discord.Embed(color=0x00ff00)
+    embed.add_field(
+        name=f"チーム1 (合計: {sum(members.get(n,0) for n in team1)})",
+        value=" ".join(f"[ {name} ]" for name in display_team1),
+        inline=False)
+    embed.add_field(
+        name=f"チーム2 (合計: {sum(members.get(n,0) for n in team2)})",
+        value=" ".join(f"[ {name} ]" for name in display_team2),
+        inline=False)
+
+    await ctx.send(embed=embed)
+
+@bot.tree.command(name="make_teams", description="参加者10人を5v5でチーム分けします（制約なし）")
+async def slash_make_teams(interaction: discord.Interaction):
+    global participants, members, history, power_diff_tolerance
+    if len(participants) != 10:
+        await interaction.response.send_message("参加者が10人必要です。")
+        return
+
+    names = list(participants)
+    candidates = []
+
+    for comb in itertools.combinations(names, 5):
+        team1 = frozenset(comb)
+        team2 = frozenset(n for n in names if n not in comb)
+
+        sum1 = sum(members.get(n, 0) for n in team1)
+        sum2 = sum(members.get(n, 0) for n in team2)
+        diff = abs(sum1 - sum2)
+
+        if diff > power_diff_tolerance:
+            continue
+
+        duplicate_in_history = any(
+            (team1 == past[0] and team2 == past[1]) or (team1 == past[1] and team2 == past[0]) for past in history
+        )
+        if duplicate_in_history:
+            continue
+
+        candidates.append({
+            'team1': team1,
+            'team2': team2,
+            'diff': diff,
+        })
+
+    if not candidates:
+        await interaction.response.send_message("条件に合うチーム分けが見つかりませんでした。")
+        return
+
+    selected = random.choice(candidates)
+
+    team1 = selected['team1']
+    team2 = selected['team2']
+
+    sorted_team1 = sorted(team1, key=lambda n: members.get(n, 0), reverse=True)
+    sorted_team2 = sorted(team2, key=lambda n: members.get(n, 0), reverse=True)
+
+    display_team1 = [get_display_name(interaction.guild, n) for n in sorted_team1]
+    display_team2 = [get_display_name(interaction.guild, n) for n in sorted_team2]
+
+    embed = discord.Embed(color=0x00ff00)
+    embed.add_field(
+        name=f"チーム1 (合計: {sum(members.get(n,0) for n in team1)})",
+        value=" ".join(f"[ {name} ]" for name in display_team1),
+        inline=False)
+    embed.add_field(
+        name=f"チーム2 (合計: {sum(members.get(n,0) for n in team2)})",
+        value=" ".join(f"[ {name} ]" for name in display_team2),
+        inline=False)
+
+    await interaction.response.send_message(embed=embed)
 
 # --- Bot起動 ---
 @bot.event
