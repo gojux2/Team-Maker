@@ -72,16 +72,13 @@ def check_participants_minimum(min_required=10):
         return min_required - current_count
     return 0
 
-# 参加者数エラー用例外
-class ParticipantCountError(Exception):
-    def __init__(self, count):
-        self.count = count
-        super().__init__(f"参加者が{count}人います。")
-
-def validate_participant_count():
+def validate_participant_count_message():
     count = len(participants)
-    if count != 10:
-        raise ParticipantCountError(count)
+    if count < 10:
+        return f"参加者があと{10 - count}人必要です。"
+    if count > 10:
+        return f"参加者が{count}人います。"
+    return None
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -338,10 +335,9 @@ async def on_reaction_add(reaction, user):
             async def send(self, content=None, **kwargs):
                 await channel.send(content=content, **kwargs)
         dummy_ctx = DummyCtx(channel, reaction.message.guild)
-        try:
-            validate_participant_count()
-        except ParticipantCountError as e:
-            await channel.send(str(e))
+        msg = validate_participant_count_message()
+        if msg is not None:
+            await channel.send(msg)
             return
         await make_teams_cmd(dummy_ctx)
 
@@ -359,10 +355,9 @@ async def on_reaction_remove(reaction, user):
 
 @bot.command(name="make_teams")
 async def make_teams_cmd(ctx, *args):
-    try:
-        validate_participant_count()
-    except ParticipantCountError as e:
-        await ctx.send(str(e))
+    msg = validate_participant_count_message()
+    if msg is not None:
+        await ctx.send(msg)
         return
 
     global participants, members, history, power_diff_tolerance
@@ -474,10 +469,9 @@ async def make_teams_cmd(ctx, *args):
 
 @bot.tree.command(name="make_teams", description="参加者10人を5v5でチーム分けします")
 async def slash_make_teams(interaction: discord.Interaction):
-    try:
-        validate_participant_count()
-    except ParticipantCountError as e:
-        await interaction.response.send_message(str(e))
+    msg = validate_participant_count_message()
+    if msg is not None:
+        await interaction.response.send_message(msg)
         return
 
     remaining = check_participants_minimum()
