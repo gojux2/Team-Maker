@@ -66,6 +66,13 @@ def save_settings(settings_dict):
 def load_settings():
     return settings_ref.get() or {}
 
+# 共通関数：参加者数チェック
+def check_participants_minimum(min_required=10):
+    current_count = len(participants)
+    if current_count < min_required:
+        return min_required - current_count
+    return 0
+
 # --- Bot初期設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
@@ -104,6 +111,27 @@ def get_display_name(guild, name):
 
 def teams_equal(t1a, t1b, t2a, t2b):
     return (t1a == t2a and t1b == t2b) or (t1a == t2b and t1b == t2a)
+
+# 参加処理共通関数
+async def handle_participation_add(guild, name, channel):
+    """
+    参加者追加処理（未登録自動登録対応）
+    成功メッセージ（2行）をDiscordに送信
+    """
+    global participants, members, initial_power
+    key_name = extract_name(name)
+    notice = ""
+    if key_name not in members:
+        members[key_name] = initial_power
+        save_members(members)
+        notice = f"(未登録だったためパワー{initial_power}で登録しました)"
+    participants.add(key_name)
+    display_name = get_display_name(guild, key_name)
+
+    if notice:
+        await channel.send(f"{display_name} が参加しました。\n{notice}")
+    else:
+        await channel.send(f"{display_name} が参加しました。")
 
 # --- Prefixコマンド群 ---
 
@@ -158,20 +186,11 @@ async def remove_member(ctx, *args):
 
 @bot.command(name="join")
 async def join(ctx, *args):
-    global participants, members, initial_power
-    guild = ctx.guild
-    added = []
+    if not args:
+        await ctx.send("名前を指定してください。")
+        return
     for name_raw in args:
-        name = extract_name(name_raw)
-        if name not in members:
-            members[name] = initial_power
-            save_members(members)
-            added.append(f"{name} (新規登録:{initial_power})")
-        else:
-            added.append(name)
-        participants.add(name)
-    display_names = [get_display_name(guild, n.split(" ")[0]) for n in added]
-    await ctx.send(f"参加表明しました: {', '.join(display_names)}" if added else "名前を指定してください。")
+        await handle_participation_add(ctx.guild, name_raw, ctx.channel)
 
 @bot.command(name="leave")
 async def leave(ctx, *args):
@@ -188,10 +207,10 @@ async def leave(ctx, *args):
     msg = ""
     if removed:
         display_names = [get_display_name(guild, n) for n in removed]
-        msg += f"参加表明を解除しました: {', '.join(display_names)}\n"
+        msg += f"参加をキャンセルしました: {', '.join(display_names)}\n"
     if not_found:
         display_names = [get_display_name(guild, n) for n in not_found]
-        msg += f"参加表明していません: {', '.join(display_names)}"
+        msg += f"参加していません: {', '.join(display_names)}"
     await ctx.send(msg or "名前を指定してください。")
 
 @bot.command(name="set_initial_power")
@@ -208,7 +227,7 @@ async def set_initial_power(ctx, power: int):
 @bot.command(name="show_initial_power")
 async def show_initial_power(ctx):
     global initial_power
-    await ctx.send(f"現在の未登録メンバーの初期パワーは {initial_power} です。")
+    await ctx.send(f"現在の初期パワーは {initial_power} です。")
 
 @bot.tree.command(name="add_member", description="メンバーとパワーを登録します")
 @app_commands.describe(name="メンバー名（メンションまたは文字列）", power="パワー（整数）")
@@ -235,22 +254,13 @@ async def slash_remove_member(interaction: discord.Interaction, name: str):
     save_members(members)
     await interaction.response.send_message(f"{display_name} を登録から削除しました。")
 
-@bot.tree.command(name="join", description="参加表明します")
+@bot.tree.command(name="join", description="参加します")
 @app_commands.describe(name="メンバー名（メンションまたは文字列）")
 async def slash_join(interaction: discord.Interaction, name: str):
-    global participants, members, initial_power
-    guild = interaction.guild
-    key_name = extract_name(name)
-    notice = ""
-    if key_name not in members:
-        members[key_name] = initial_power
-        save_members(members)
-        notice = "(未登録だったためパワー50で登録しました) "
-    participants.add(key_name)
-    display_name = get_display_name(guild, key_name)
-    await interaction.response.send_message(f"{notice}{display_name} が参加表明しました。")
+    await handle_participation_add(interaction.guild, name, interaction.channel)
+    await interaction.response.defer()
 
-@bot.tree.command(name="leave", description="参加表明を解除します")
+@bot.tree.command(name="leave", description="参加をキャンセルします")
 @app_commands.describe(name="メンバー名（メンションまたは文字列）")
 async def slash_leave(interaction: discord.Interaction, name: str):
     global participants
@@ -258,18 +268,18 @@ async def slash_leave(interaction: discord.Interaction, name: str):
     key_name = extract_name(name)
     display_name = get_display_name(guild, key_name)
     if key_name not in participants:
-        await interaction.response.send_message(f"{display_name} は参加表明していません。")
+        await interaction.response.send_message(f"{display_name} は参加していません。")
         return
     participants.remove(key_name)
-    await interaction.response.send_message(f"{display_name} の参加表明を解除しました。")
+    await interaction.response.send_message(f"{display_name} の参加をキャンセルしました。")
 
-@bot.tree.command(name="reset_join", description="参加表明リストをリセットします")
+@bot.tree.command(name="reset_join", description="参加者リストをリセットします")
 async def reset_join(interaction: discord.Interaction):
     global participants
     participants.clear()
-    await interaction.response.send_message("参加表明リストをリセットしました。")
+    await interaction.response.send_message("参加者リストをリセットしました。")
 
-@bot.tree.command(name="list_members", description="登録済みメンバーの一覧を表示します")
+@bot.tree.command(name="list_members", description="登録済みメンバー一覧を表示します")
 async def list_members(interaction: discord.Interaction):
     guild = interaction.guild
     sorted_members = sorted(members.items(), key=lambda item: item[1], reverse=True)
@@ -295,25 +305,33 @@ async def set_tolerance(interaction: discord.Interaction, value: int):
 async def show_tolerance(interaction: discord.Interaction):
     await interaction.response.send_message(f"現在のパワー差許容値は {power_diff_tolerance} です。")
 
-@bot.tree.command(name="recruit", description="参加者の募集を開始します")
+@bot.tree.command(name="recruit", description="参加者募集メッセージを送信します")
 async def recruit(interaction: discord.Interaction):
     global recruit_msg_id, recruit_channel_id, participants
-    msg = await interaction.channel.send("LoLカスタム募集！")
+    msg = await interaction.channel.send("LoLカスタム参加募集！")
     await msg.add_reaction("👍")
     await msg.add_reaction("✅")
     recruit_msg_id = msg.id
     recruit_channel_id = msg.channel.id
     participants.clear()
-    await interaction.response.send_message("参加表明リストをリセットしました。")
+    await interaction.response.send_message("参加者リストをリセットしました。")
+
+@bot.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
+        return
+    if reaction.message.id != recruit_msg_id:
+        return
+    channel = reaction.message.channel
+    await handle_participation_add(reaction.message.guild, str(user.id), channel)
 
 @bot.command(name="make_teams")
 async def make_teams_cmd(ctx, *args):
     global participants, members, history, power_diff_tolerance
 
-    current_count = len(participants)
-    required = 10
-    if current_count != required:
-        await ctx.send(f"参加表明したメンバーが{required}人必要です。")
+    remaining = check_participants_minimum()
+    if remaining > 0:
+        await ctx.send(f"参加者があと{remaining}人必要です。")
         return
 
     same_team_groups = []
@@ -422,11 +440,11 @@ async def make_teams_cmd(ctx, *args):
 
     await ctx.send(embed=embed)
 
-@bot.tree.command(name="make_teams", description="参加者10人を5v5でチーム分けします（制約なし）")
+@bot.tree.command(name="make_teams", description="参加者10人を5v5でチーム分けします")
 async def slash_make_teams(interaction: discord.Interaction):
-    global participants, members, history, power_diff_tolerance
-    if len(participants) != 10:
-        await interaction.response.send_message("参加者が10人必要です。")
+    remaining = check_participants_minimum()
+    if remaining > 0:
+        await interaction.response.send_message(f"参加者があと{remaining}人必要です。")
         return
 
     names = list(participants)
