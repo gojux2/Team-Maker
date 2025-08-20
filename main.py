@@ -123,7 +123,7 @@ async def handle_participation_add(guild, name, channel):
     if key_name not in members:
         members[key_name] = initial_power
         save_members(members)
-        notice = f"(未登録だったためパワー{initial_power}で登録しました)"
+        notice = f"未登録のためパワー{initial_power}で登録しました"
     participants.add(key_name)
     display_name = get_display_name(guild, key_name)
 
@@ -464,6 +464,86 @@ async def make_teams_cmd(ctx, *args):
     if selected['diff'] > power_diff_tolerance:
         await ctx.send(f"パワー差許容範囲内（{power_diff_tolerance}）のチーム分けが見つかりませんでした。")
 
+    await ctx.send(embed=embed)
+
+@bot.command(name="commands")
+async def commands_list(ctx):
+    prefix = "!"
+    slash_prefix = "/"
+    commands_info = [
+        {
+            "name": "add_member",
+            "desc": "メンバーとパワーを登録します",
+            "usage": f"{prefix}add_member メンバー名 パワー"
+        },
+        {
+            "name": "remove_member",
+            "desc": "登録済みメンバーを削除します",
+            "usage": f"{prefix}remove_member メンバー名"
+        },
+        {
+            "name": "join",
+            "desc": "参加します",
+            "usage": f"{prefix}join メンバー名"
+        },
+        {
+            "name": "leave",
+            "desc": "参加をキャンセルします",
+            "usage": f"{prefix}leave メンバー名"
+        },
+        {
+            "name": "set_initial_power",
+            "desc": "未登録メンバーの初期パワーを設定します",
+            "usage": f"{prefix}set_initial_power 数値"
+        },
+        {
+            "name": "show_initial_power",
+            "desc": "現在の初期パワーを表示します",
+            "usage": f"{prefix}show_initial_power"
+        },
+        {
+            "name": "make_teams",
+            "desc": "参加者10人を5v5でチーム分けします",
+            "usage": f"{prefix}make_teams same:メンバー diff:メンバー"
+        },
+        {
+            "name": "set_tolerance",
+            "desc": "パワー差許容値の設定",
+            "usage": f"{slash_prefix}set_tolerance 許容値"
+        },
+        {
+            "name": "show_tolerance",
+            "desc": "現在のパワー差許容値を表示",
+            "usage": f"{slash_prefix}show_tolerance"
+        },
+        {
+            "name": "recruit",
+            "desc": "参加者募集メッセージ送信",
+            "usage": f"{slash_prefix}recruit"
+        },
+        {
+            "name": "list_members",
+            "desc": "登録済みメンバー一覧表示",
+            "usage": f"{slash_prefix}list_members"
+        },
+        {
+            "name": "list_joiners",
+            "desc": "現在の参加者一覧表示",
+            "usage": f"{slash_prefix}list_joiners"
+        },
+        {
+            "name": "reset_join",
+            "desc": "参加者リストリセット",
+            "usage": f"{slash_prefix}reset_join"
+        },
+    ]
+
+    embed = discord.Embed(title="利用可能なコマンド一覧", color=0x3498db)
+    for cmd in commands_info:
+        embed.add_field(
+            name=f"{prefix}{cmd['name']} / {slash_prefix}{cmd['name']}",
+            value=f"説明: {cmd['desc']}\n使い方例: `{cmd['usage']}`",
+            inline=False)
     await ctx.send(embed=embed)
 
 @bot.event
