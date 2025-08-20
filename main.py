@@ -123,7 +123,7 @@ async def handle_participation_add(guild, name, channel):
     if key_name not in members:
         members[key_name] = initial_power
         save_members(members)
-        notice = f"未登録のためパワー{initial_power}で登録しました"
+        notice = f"(未登録のためパワー{initial_power}で登録しました)"
     participants.add(key_name)
     display_name = get_display_name(guild, key_name)
 
@@ -282,6 +282,16 @@ async def list_members(interaction: discord.Interaction):
         text += f"{display_name}: {power}\n"
     await interaction.response.send_message(text)
 
+@bot.tree.command(name="list_joiners", description="現在の参加者一覧を表示します")
+async def list_joiners(interaction: discord.Interaction):
+    guild = interaction.guild
+    sorted_list = sorted(participants, key=lambda p: members.get(p, 0), reverse=True)
+    if not sorted_list:
+        await interaction.response.send_message("現在の参加者はいません。")
+        return
+    lines = [f"{get_display_name(guild, p)}: {members.get(p, 0)}" for p in sorted_list]
+    await interaction.response.send_message("現在の参加者一覧:\n" + "\n".join(lines))
+
 @bot.tree.command(name="set_tolerance", description="パワー差許容値を設定します")
 async def set_tolerance(interaction: discord.Interaction, value: int):
     global power_diff_tolerance, settings
@@ -389,17 +399,15 @@ async def make_teams_cmd(ctx, *args):
     candidates = []
 
     diff_count = len(diff_team_set)
-    target_in_team1 = (diff_count + 1) // 2  # diffグループ半数（切り上げ）
+    target_in_team1 = (diff_count + 1) // 2
 
     for comb in itertools.combinations(names, 5):
         team1 = frozenset(comb)
         team2 = frozenset(n for n in names if n not in comb)
 
-        # sameグループ条件
         if any(not (group.issubset(team1) or group.issubset(team2)) for group in same_team_groups):
             continue
 
-        # diffグループ均等割りチェック
         if diff_count > 0:
             in_team1 = len(diff_team_set.intersection(team1))
             in_team2 = len(diff_team_set.intersection(team2))
@@ -470,78 +478,22 @@ async def make_teams_cmd(ctx, *args):
 async def commands_list(ctx):
     prefix = "!"
     slash_prefix = "/"
-    commands_info = [
-        {
-            "name": "add_member",
-            "desc": "メンバーとパワーを登録します",
-            "usage": f"{prefix}add_member メンバー名 パワー"
-        },
-        {
-            "name": "remove_member",
-            "desc": "登録済みメンバーを削除します",
-            "usage": f"{prefix}remove_member メンバー名"
-        },
-        {
-            "name": "join",
-            "desc": "参加します",
-            "usage": f"{prefix}join メンバー名"
-        },
-        {
-            "name": "leave",
-            "desc": "参加をキャンセルします",
-            "usage": f"{prefix}leave メンバー名"
-        },
-        {
-            "name": "set_initial_power",
-            "desc": "未登録メンバーの初期パワーを設定します",
-            "usage": f"{prefix}set_initial_power 数値"
-        },
-        {
-            "name": "show_initial_power",
-            "desc": "現在の初期パワーを表示します",
-            "usage": f"{prefix}show_initial_power"
-        },
-        {
-            "name": "make_teams",
-            "desc": "参加者10人を5v5でチーム分けします",
-            "usage": f"{prefix}make_teams same:メンバー diff:メンバー"
-        },
-        {
-            "name": "set_tolerance",
-            "desc": "パワー差許容値の設定",
-            "usage": f"{slash_prefix}set_tolerance 許容値"
-        },
-        {
-            "name": "show_tolerance",
-            "desc": "現在のパワー差許容値を表示",
-            "usage": f"{slash_prefix}show_tolerance"
-        },
-        {
-            "name": "recruit",
-            "desc": "参加者募集メッセージ送信",
-            "usage": f"{slash_prefix}recruit"
-        },
-        {
-            "name": "list_members",
-            "desc": "登録済みメンバー一覧表示",
-            "usage": f"{slash_prefix}list_members"
-        },
-        {
-            "name": "list_joiners",
-            "desc": "現在の参加者一覧表示",
-            "usage": f"{slash_prefix}list_joiners"
-        },
-        {
-            "name": "reset_join",
-            "desc": "参加者リストリセット",
-            "usage": f"{slash_prefix}reset_join"
-        },
+
+    prefix_only_commands = [
+        {"name": "add_member", "desc": "メンバーとパワーを登録します", "usage": f"{prefix}add_member メンバー名 パワー"},
+        {"name": "remove_member", "desc": "登録済みメンバーを削除します", "usage": f"{prefix}remove_member メンバー名"},
+        {"name": "join", "desc": "参加します", "usage": f"{prefix}join メンバー名"},
+        {"name": "leave", "desc": "参加をキャンセルします", "usage": f"{prefix}leave メンバー名"},
+        {"name": "set_initial_power", "desc": "未登録メンバーの初期パワーを設定します", "usage": f"{prefix}set_initial_power 数値"},
+        {"name": "show_initial_power", "desc": "現在の初期パワーを表示します", "usage": f"{prefix}show_initial_power"},
+        {"name": "make_teams", "desc": "参加者10人を5v5でチーム分けします", "usage": f"{prefix}make_teams same:メンバー diff:メンバー"},
+        {"name": "commands", "desc": "コマンド一覧を表示します", "usage": f"{prefix}commands"},
     ]
 
-    embed = discord.Embed(title="利用可能なコマンド一覧", color=0x3498db)
-    for cmd in commands_info:
+    embed = discord.Embed(title="利用可能なプレフィックスコマンド一覧", color=0x3498db)
+    for cmd in prefix_only_commands:
         embed.add_field(
-            name=f"{prefix}{cmd['name']} / {slash_prefix}{cmd['name']}",
+            name=f"{prefix}{cmd['name']}",
             value=f"説明: {cmd['desc']}\n使い方例: `{cmd['usage']}`",
             inline=False)
     await ctx.send(embed=embed)
