@@ -13,6 +13,7 @@ intents.members = True
 
 RECRUIT_EMOJI = "👍"
 CHECK_EMOJI = "✅"
+TOKEN = os.environ.get('DISCORD_TOKEN')
 
 class TeamBot(commands.Bot):
     def __init__(self):
@@ -351,5 +352,8 @@ async def make_teams(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed)
 
+if not TOKEN:
+    raise ValueError("Discord Botトークンが環境変数に設定されていません")
+
 if __name__ == "__main__":
-    bot.run('MTQwNjk5MjE4OTk1OTE3NjI3NA.GVmoPg.QHlgv3-dYKe5voxKxt2CBTYpczEo7E8VuBajPI')
+    bot.run(TOKEN)
