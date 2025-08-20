@@ -5,6 +5,22 @@ import itertools
 import json
 import os
 import random
+from flask import Flask
+import threading
+
+# === Flaskによるスリープ対策サーバー（KoyebやReplit等で有効） ===
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run():
+    app.run(host="0.0.0.0", port=8080)
+
+threading.Thread(target=run).start()
+
+# === Discord Bot本体 ===
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -13,14 +29,12 @@ intents.members = True
 
 RECRUIT_EMOJI = "👍"
 CHECK_EMOJI = "✅"
-TOKEN = os.environ.get('DISCORD_TOKEN')
 
 class TeamBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # スラッシュコマンドをサーバーに同期
         await self.tree.sync()
 
 bot = TeamBot()
@@ -233,26 +247,22 @@ async def on_reaction_add(reaction, user):
             return
 
         candidates.sort(key=lambda c: (c['repeat_score'], c['diff']))
-
         top_candidates = candidates[:min(5, len(candidates))]
         selected = random.choice(top_candidates)
-
         team1 = selected['team1']
         team2 = selected['team2']
-
         history.append((team1, team2))
         if len(history) > 10:
             history.pop(0)
         data["history"] = [(list(t[0]), list(t[1])) for t in history]
         save_data(data)
-
         sorted_team1 = sorted(team1, key=lambda n: members[n], reverse=True)
         sorted_team2 = sorted(team2, key=lambda n: members[n], reverse=True)
-
         display_team1 = [get_display_name(guild, n) for n in sorted_team1]
         display_team2 = [get_display_name(guild, n) for n in sorted_team2]
 
-        embed = discord.Embed(color=0x00ff00)  # 緑色
+        # 埋め込み（Embed）メッセージ形式で出力
+        embed = discord.Embed(color=0x00ff00)
         embed.add_field(
             name=f"チーム1 (合計: {sum(members[n] for n in team1)})",
             value=" ".join(f"[ {name} ]" for name in display_team1),
@@ -321,26 +331,22 @@ async def make_teams(interaction: discord.Interaction):
         return
 
     candidates.sort(key=lambda c: (c['repeat_score'], c['diff']))
-
     top_candidates = candidates[:min(5, len(candidates))]
     selected = random.choice(top_candidates)
-
     team1 = selected['team1']
     team2 = selected['team2']
-
     history.append((team1, team2))
     if len(history) > 10:
         history.pop(0)
     data["history"] = [(list(t[0]), list(t[1])) for t in history]
     save_data(data)
-
     sorted_team1 = sorted(team1, key=lambda n: members[n], reverse=True)
     sorted_team2 = sorted(team2, key=lambda n: members[n], reverse=True)
-
     display_team1 = [get_display_name(interaction.guild, n) for n in sorted_team1]
     display_team2 = [get_display_name(interaction.guild, n) for n in sorted_team2]
 
-    embed = discord.Embed(color=0x00ff00)  # 緑色
+    # 埋め込み（Embed）メッセージ形式で出力
+    embed = discord.Embed(color=0x00ff00)
     embed.add_field(
         name=f"チーム1 (合計: {sum(members[n] for n in team1)})",
         value=" ".join(f"[ {name} ]" for name in display_team1),
@@ -352,8 +358,8 @@ async def make_teams(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed)
 
-if not TOKEN:
-    raise ValueError("Discord Botトークンが環境変数に設定されていません")
-
 if __name__ == "__main__":
+    TOKEN = os.environ.get("DISCORD_TOKEN")
+    if not TOKEN:
+        raise ValueError("環境変数DISCORD_TOKENがセットされていません")
     bot.run(TOKEN)
