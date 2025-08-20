@@ -420,8 +420,9 @@ async def make_teams_cmd(ctx, *args):
 
         def member_repeat_score(t1, t2):
             score = 0
+            weights = [100, 10, 5, 2, 1]  # 直近の履歴に重み付け強化
             for idx, past in enumerate(history[::-1]):
-                weight = (idx + 1)
+                weight = weights[idx] if idx < len(weights) else 1
                 score += weight * len(t1.intersection(past[0]))
                 score += weight * len(t2.intersection(past[1]))
             return score
