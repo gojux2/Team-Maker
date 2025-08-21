@@ -159,40 +159,38 @@ async def handle_participation_add(guild, name, channel):
     else:
         await channel.send(f"{display_name} が参加しました。")
 
-@bot.command(name="show_overlap")
-async def show_overlap(ctx):
-    recent_history = history[-10:]
-    if not recent_history:
+@bot.command(name="show_history")
+async def show_history(ctx):
+    if not history:
         await ctx.send("履歴がありません。")
         return
 
-    participants_set = set()
-    for t1, t2 in recent_history:
-        participants_set.update(t1)
-        participants_set.update(t2)
+    lines = []
+    for i, (team1, team2) in enumerate(history[-10:], start=1):
+        team1_names = ", ".join(sorted(get_display_name(ctx.guild, n) for n in team1))
+        team2_names = ", ".join(sorted(get_display_name(ctx.guild, n) for n in team2))
+        lines.append(f"第{i}回目:\n チーム1: {team1_names}\n チーム2: {team2_names}")
 
-    all_pairs = list(itertools.combinations(sorted(participants_set), 2))
-
-    pair_counter = Counter()
-
-    for t1, t2 in recent_history:
-        team1_members = set(t1)
-        team2_members = set(t2)
-
-        for pair in all_pairs:
-            a, b = pair
-            if (a in team1_members and b in team1_members) or (a in team2_members and b in team2_members):
-                pair_counter[pair] += 1
-
-    if not pair_counter:
-        await ctx.send("履歴から有効なペアが見つかりませんでした。")
-        return
-
-    sorted_pairs = pair_counter.most_common(100)
-    lines = [f"{a}, {b} {count}回" for (a, b), count in sorted_pairs]
-
-    msg = "直近10回の履歴で同じチームになったペア回数（多い順）:\n" + "\n".join(lines)
-    await ctx.send(f"``````")
+    msg = "直近10回のチーム分け履歴:\n" + "\n\n".join(lines)
+    # Discord メッセージの長さ制限に配慮して分割送信（もし長すぎる場合）
+    MAX_LENGTH = 1900
+    if len(msg) <= MAX_LENGTH:
+        await ctx.send(f"``````")
+    else:
+        # 分割して送る処理
+        chunks = []
+        current_chunk = ""
+        for line in lines:
+            segment = f"{line}\n\n"
+            if len(current_chunk) + len(segment) > MAX_LENGTH:
+                chunks.append(current_chunk)
+                current_chunk = segment
+            else:
+                current_chunk += segment
+        if current_chunk:
+            chunks.append(current_chunk)
+        for chunk in chunks:
+            await ctx.send(f"``````")
 
 # 以下は元々あなたが示された完全版コードのコマンド部分とイベント等の一致した部分になります
 
@@ -558,3 +556,4 @@ if __name__ == "__main__":
     if not TOKEN:
         raise ValueError("環境変数DISCORD_TOKENがセットされていません")
     bot.run(TOKEN)
+
