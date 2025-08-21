@@ -8,6 +8,7 @@ from flask import Flask
 import base64
 import firebase_admin
 from firebase_admin import credentials, db
+from collections import Counter
 
 # --- Flaskによるスリープ対策サーバー ---
 app = Flask(__name__)
@@ -157,6 +158,43 @@ async def handle_participation_add(guild, name, channel):
         await channel.send(f"{display_name} が参加しました。\n{notice}")
     else:
         await channel.send(f"{display_name} が参加しました。")
+
+@bot.command(name="show_overlap")
+async def show_overlap(ctx):
+    recent_history = history[-10:]
+    if not recent_history:
+        await ctx.send("履歴がありません。")
+        return
+
+    participants_set = set()
+    for t1, t2 in recent_history:
+        participants_set.update(t1)
+        participants_set.update(t2)
+
+    all_pairs = list(itertools.combinations(sorted(participants_set), 2))
+
+    pair_counter = Counter()
+
+    for t1, t2 in recent_history:
+        team1_members = set(t1)
+        team2_members = set(t2)
+
+        for pair in all_pairs:
+            a, b = pair
+            if (a in team1_members and b in team1_members) or (a in team2_members and b in team2_members):
+                pair_counter[pair] += 1
+
+    if not pair_counter:
+        await ctx.send("履歴から有効なペアが見つかりませんでした。")
+        return
+
+    sorted_pairs = pair_counter.most_common(100)
+    lines = [f"{a}, {b} {count}回" for (a, b), count in sorted_pairs]
+
+    msg = "直近10回の履歴で同じチームになったペア回数（多い順）:\n" + "\n".join(lines)
+    await ctx.send(f"``````")
+
+# 以下は元々あなたが示された完全版コードのコマンド部分とイベント等の一致した部分になります
 
 @bot.command(name="add_member")
 async def add_member(ctx, *args):
@@ -350,12 +388,10 @@ async def on_reaction_add(reaction, user):
         return
     if reaction.message.id != recruit_msg_id:
         return
-
     if str(reaction.emoji) == "👍":
         key_name = str(user.id)
         if key_name not in participants:
             participants.add(key_name)
-
     elif str(reaction.emoji) == "✅":
         channel = reaction.message.channel
         class DummyCtx:
@@ -377,7 +413,6 @@ async def on_reaction_remove(reaction, user):
         return
     if reaction.message.id != recruit_msg_id:
         return
-
     if str(reaction.emoji) == "👍":
         key_name = str(user.id)
         if key_name in participants:
@@ -389,26 +424,19 @@ async def make_teams_cmd(ctx, *args):
     if msg is not None:
         await ctx.send(msg)
         return
-
     global participants, members, history, power_diff_tolerance
-
     names = list(participants)
     if len(names) != 10:
         await ctx.send("参加者が10人ではありません。")
         return
-
     full_candidates = []
-
     for comb in itertools.combinations(names, 5):
         team1 = frozenset(comb)
         team2 = frozenset(n for n in names if n not in comb)
-
         sum1 = sum(members.get(n, 0) for n in team1)
         sum2 = sum(members.get(n, 0) for n in team2)
         diff = abs(sum1 - sum2)
-
         repeat_score = member_repeat_score(team1, team2)
-
         candidate = {
             'team1': team1,
             'team2': team2,
@@ -416,28 +444,21 @@ async def make_teams_cmd(ctx, *args):
             'repeat_score': repeat_score
         }
         full_candidates.append(candidate)
-
     full_candidates.sort(key=lambda c: (c['repeat_score'], c['diff']))
     selected = random.choice(full_candidates[:min(5, len(full_candidates))])
-
     team1 = selected['team1']
     team2 = selected['team2']
-
     if history:
         prev_team1, prev_team2 = history[-1]
         team1, team2 = decide_swap(team1, team2, prev_team1, prev_team2)
-
     history.append((team1, team2))
     if len(history) > 10:
         history.pop(0)
     save_history([(list(t[0]), list(t[1])) for t in history])
-
     sorted_team1 = sorted(team1, key=lambda n: members.get(n, 0), reverse=True)
     sorted_team2 = sorted(team2, key=lambda n: members.get(n, 0), reverse=True)
-
     display_team1 = [get_display_name(ctx.guild, n) for n in sorted_team1]
     display_team2 = [get_display_name(ctx.guild, n) for n in sorted_team2]
-
     embed = discord.Embed(color=0xffa500)
     embed.add_field(
         name=f"チーム1 (合計: {sum(members.get(n, 0) for n in team1)})",
@@ -447,10 +468,8 @@ async def make_teams_cmd(ctx, *args):
         name=f"チーム2 (合計: {sum(members.get(n, 0) for n in team2)})",
         value=" ".join(f"[ {name} ]" for name in display_team2),
         inline=False)
-
     if selected['diff'] > power_diff_tolerance:
         await ctx.send(f"パワー差許容範囲内（{power_diff_tolerance}）のチーム分けが見つかりませんでした。")
-
     await ctx.send(embed=embed)
 
 @bot.tree.command(name="make_teams", description="10人の参加者を5v5に分ける標準的なチーム分け")
@@ -459,26 +478,19 @@ async def slash_make_teams(interaction: discord.Interaction):
     if msg is not None:
         await interaction.response.send_message(msg)
         return
-
     global participants, members, history, power_diff_tolerance
-
     names = list(participants)
     if len(names) != 10:
         await interaction.response.send_message("参加者が10人ではありません。")
         return
-
     full_candidates = []
-
     for comb in itertools.combinations(names, 5):
         team1 = frozenset(comb)
         team2 = frozenset(n for n in names if n not in comb)
-
         sum1 = sum(members.get(n, 0) for n in team1)
         sum2 = sum(members.get(n, 0) for n in team2)
         diff = abs(sum1 - sum2)
-
         repeat_score = member_repeat_score(team1, team2)
-
         candidate = {
             'team1': team1,
             'team2': team2,
@@ -486,28 +498,21 @@ async def slash_make_teams(interaction: discord.Interaction):
             'repeat_score': repeat_score
         }
         full_candidates.append(candidate)
-
     full_candidates.sort(key=lambda c: (c['repeat_score'], c['diff']))
     selected = random.choice(full_candidates[:min(5, len(full_candidates))])
-
     team1 = selected['team1']
     team2 = selected['team2']
-
     if history:
         prev_team1, prev_team2 = history[-1]
         team1, team2 = decide_swap(team1, team2, prev_team1, prev_team2)
-
     history.append((team1, team2))
     if len(history) > 10:
         history.pop(0)
     save_history([(list(t[0]), list(t[1])) for t in history])
-
     sorted_team1 = sorted(team1, key=lambda n: members.get(n, 0), reverse=True)
     sorted_team2 = sorted(team2, key=lambda n: members.get(n, 0), reverse=True)
-
     display_team1 = [get_display_name(interaction.guild, n) for n in sorted_team1]
     display_team2 = [get_display_name(interaction.guild, n) for n in sorted_team2]
-
     embed = discord.Embed(color=0xffa500)
     embed.add_field(
         name=f"チーム1 (合計: {sum(members.get(n, 0) for n in team1)})",
@@ -517,31 +522,10 @@ async def slash_make_teams(interaction: discord.Interaction):
         name=f"チーム2 (合計: {sum(members.get(n, 0) for n in team2)})",
         value=" ".join(f"[ {name} ]" for name in display_team2),
         inline=False)
-
     if selected['diff'] > power_diff_tolerance:
         await interaction.response.send_message(f"パワー差許容範囲内（{power_diff_tolerance}）のチーム分けが見つかりませんでした。")
         return
-
     await interaction.response.send_message(embed=embed)
-    
-@bot.command(name="show_overlap")
-async def show_overlap(ctx):
-    from collections import Counter
-    pair_counter = Counter()
-
-    for team1, team2 in history[-10:]:
-        for pair in itertools.combinations(sorted(team1), 2):
-            pair_counter[tuple(sorted(pair))] += 1
-        for pair in itertools.combinations(sorted(team2), 2):
-            pair_counter[tuple(sorted(pair))] += 1
-
-    if not pair_counter:
-        await ctx.send("履歴がありません。")
-        return
-
-    lines = [f"{a}, {b} {count}回" for (a, b), count in pair_counter.most_common(100)]
-    msg = "直近10回の履歴におけるメンバー重複回数（一緒に組まれた回数）:\n" + "\n".join(lines)
-    await ctx.send(f"``````")
 
 @bot.command(name="commands")
 async def commands_list(ctx):
@@ -556,7 +540,6 @@ async def commands_list(ctx):
         {"name": "make_teams", "desc": "参加者10人を5v5でチーム分けします", "usage": f"{prefix}make_teams same:メンバー diff:メンバー"},
         {"name": "commands", "desc": "コマンド一覧を表示します", "usage": f"{prefix}commands"},
     ]
-
     embed = discord.Embed(title="利用可能なプレフィックスコマンド一覧", color=0x3498db)
     for cmd in prefix_only_commands:
         embed.add_field(
@@ -575,5 +558,3 @@ if __name__ == "__main__":
     if not TOKEN:
         raise ValueError("環境変数DISCORD_TOKENがセットされていません")
     bot.run(TOKEN)
-
-
