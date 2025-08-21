@@ -523,13 +523,12 @@ async def slash_make_teams(interaction: discord.Interaction):
         return
 
     await interaction.response.send_message(embed=embed)
+    
 @bot.command(name="show_overlap")
 async def show_overlap(ctx):
-    # 直近10回の履歴からペアごとの重複回数をカウント
     from collections import Counter
     pair_counter = Counter()
 
-    # 参加者を2人組の組み合わせに変換し集計
     for team1, team2 in history[-10:]:
         for pair in itertools.combinations(sorted(team1), 2):
             pair_counter[tuple(sorted(pair))] += 1
@@ -540,8 +539,7 @@ async def show_overlap(ctx):
         await ctx.send("履歴がありません。")
         return
 
-    # カウント順にペアを並べてテキスト生成
-    lines = [f"{a}, {b} {count}回" for (a, b), count in pair_counter.most_common()]
+    lines = [f"{a}, {b} {count}回" for (a, b), count in pair_counter.most_common(100)]
     msg = "直近10回の履歴におけるメンバー重複回数（一緒に組まれた回数）:\n" + "\n".join(lines)
     await ctx.send(f"``````")
 
@@ -577,4 +575,5 @@ if __name__ == "__main__":
     if not TOKEN:
         raise ValueError("環境変数DISCORD_TOKENがセットされていません")
     bot.run(TOKEN)
+
 
